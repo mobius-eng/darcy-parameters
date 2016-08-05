@@ -1,17 +1,28 @@
 (in-package #:darcy-parametes)
 
-(defvar *conductivities*
-  '((conductivity
-     (:name "Liquid viscosity (nu)"
-      :value 1d-6
-      :units "m2/s"
-      :description "Liquid kinematic viscosity (dynamic viscosity / density)"
-      :keyword :liquid-viscosity)
-     (:name "intrinsic permeability"
-      :value 1d-8
-      :units "m2"
-      :description "Medium intrinsic permeability"
-      :keyword :intrinsic-permeability))))
+
+(defvar *conductivity*
+  (parameter
+   :name "Conductivity"
+   :children
+   (list (parameter
+          :name "Viscosity (ν)"
+          :id :liquid-viscosity
+          :value 1d-6
+          :units "m2/s"
+          :description "Liquid kinematic viscosity")
+         (parameter
+          :name "Intrinsic permeability, k"
+          :id :intrinsic-permeability
+          :value 1d-9
+          :units "m2"
+          :description "Medium intrinsic permeability"))
+   :constructor (lambda (&rest args)
+                  (apply #'make-instance 'conductivity args))))
+
+(defvar *unsaturated-base-parameter-list*
+  )
+
 
 (defvar *unsaturated-common*
   '((:name "Saturated water content"
