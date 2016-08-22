@@ -1,20 +1,20 @@
 ;;;; package.lisp
 
-
-(defpackage :parameters
-  (:use #:cl)
-  (:export #:parameter #:instantiate-object
-           #:parameter-base #:parameter-base-parent #:parameter-base-constructor
-           #:parameter-base-id #:parameter-base-name
-           #:parameter-base-description
-           #:parameter-value
-           #:parameter-units #:parameter-value-transformer
-           #:perturbed-parameter #:perturbed-parameter-perturbation
-           #:parameter-options #:parameter-options-options
-           #:parameter-options-selection
-           #:parameter-container #:parameter-container-children
-           #:single-parameter))
-
-(defpackage :darcy-parametes
-  (:use #:cl #:parameters #:darcy))
-
+(defpackage :darcy-parameters
+  (:use #:cl #:parameters #:darcy-use)
+  (:export #:make-default-conductivity
+           #:make-default-van-genuchten
+           #:make-default-brooks-corey-mualem
+           #:make-default-unsaturated-models
+           #:make-default-constant-inlet-discharge
+           #:make-default-noisy-inlet-discharge
+           #:make-defualt-fluctuating-inlet-discharge
+           #:make-default-inlet-discharge-options
+           #:*unsaturated-model-makers*
+           #:*inlet-discharge-model-makers*
+           #:register-new-inlet-discharge
+           #:register-new-unsaturated-model
+           #:make-default-darcy-model
+           #:uniform-darcy-model
+           #:constructor
+           #:*name-substitutions*))
