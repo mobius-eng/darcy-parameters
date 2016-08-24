@@ -1,7 +1,17 @@
 ;;;; package.lisp
 
+(defpackage :unit-conversion
+  (:use #:cl)
+  (:export #:register-units-converter
+           #:deregister-units-converter
+           #:get-conversion
+           #:has-conversion-p
+           #:convert-units
+           #:define-units))
+
+
 (defpackage :darcy-parameters
-  (:use #:cl #:parameters #:darcy-use)
+  (:use #:cl #:parameters #:darcy-use #:unit-conversion)
   (:export #:make-default-conductivity
            #:make-default-van-genuchten
            #:make-default-brooks-corey-mualem
@@ -18,3 +28,5 @@
            #:uniform-darcy-model
            #:constructor
            #:*name-substitutions*))
+
+
