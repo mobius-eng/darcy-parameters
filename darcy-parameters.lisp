@@ -150,8 +150,11 @@ with flow rate of 10 L/m2 h. Provides the conversion to SI units"
      :value 10d0
      :units "L/m2.h"
      :description "Inlet flow rate"
-     :value-transformer (lambda (x) (/ x 1000d0 3600d0))))
+     :value-transformer (get-conversion "L/m2.h")))
    :constructor (constructor 'constant-inlet-discharge)))
+
+(define-units ("1/h" x) (/ x 3600d0))
+(define-units ("1/hour" x nil) (/ x 3600d0))
 
 ;; ** Default FLUCTUATING-INLET-DISCHARGE
 (defun make-default-fluctuating-inlet-discharge ()
@@ -168,22 +171,24 @@ Provides all the necessary transformers to SI units"
      :value 10d0
      :units "L/m2.h"
      :description "Inlet flow rate"
-     :value-transformer (lambda (x) (/ x 1000d0 3600d0)))
+     :value-transformer (get-conversion "L/m2.h"))
     (parameter
      :name "Frequency"
      :id :fluctuation-frequency
      :value 1d0
      :units "1/hour"
      :description "Frequency of fluctuation"
-     :value-transformer (lambda (x) (/ x 3600d0)))
+     :value-transformer (get-conversion "1/hour"))
     (parameter
      :name "Delay"
      :id :fluctuation-delay
      :value 0d0
      :units "hour"
      :description "Delay of fluctuation"
-     :value-transformer (lambda (x) (* x 3600d0))))
+     :value-transformer (get-conversion "hour")))
    :constructor (constructor 'fluctuating-inlet-discharge)))
+
+(define-units ("%" x) (/ x 100d0))
 
 ;; ** Default NOISY-INLET-DISCHARGE
 (defun make-default-noisy-inlet-discharge ()
@@ -199,7 +204,7 @@ with default 0% noise."
      :value 0d0
      :units "%"
      :description "Level of noise as the % of current flow rate"
-     :value-transformer (lambda (x) (/ x 100d0)))
+     :value-transformer (get-conversion "%"))
     (parameter
      :name "Base flow rate"
      :id :base-inlet-discharge
@@ -259,6 +264,7 @@ as singular objects and are broadcastes uniformly to each discretized volume"
   "Produces default parameter for full Darcy model"
   (parameter
    :name "Darcy model"
+   :id :darcy
    :children
    (list
     (parameter
@@ -295,3 +301,90 @@ as singular objects and are broadcastes uniformly to each discretized volume"
    :thetas :saturated-water-content)
   "PList of names that can be used instead of proper parameter names
 (in YAML files)")
+
+
+
+;; * Simulation probem
+;; ** Definition
+(defclass darcy-simulation ()
+  ((darcy
+    :initarg :darcy
+    :documentation
+    "Darcy model instance to simulation")
+   (final-time
+    :initarg :final-time
+    :documentation
+    "Final time of simulation (in seconds)")
+   (output-time-interval
+    :initarg :output-time-interval
+    :documentation
+    "Interval with which produce the output")
+   (plot-time-interval
+    :initarg :plot-time-interval
+    :documentation
+    "Interval for plots: usualy longer than OUTPUT-TIME-INTERVAL")
+   (initial-saturation
+    :initarg :initial-saturation
+    :documentation
+    "Initial saturation for simulation")
+   (simulation-result
+    :initform nil
+    :documentation
+    "Storage for the result of simulation"))
+  (:documentation
+   "Full representation of the Darcy model simulation"))
+
+;; ** Simulation
+(defmethod simulate ((model darcy-simulation))
+  (with-slots (darcy final-time output-time-interval
+                     plot-time-interval initial-saturation
+                     simulation-result)
+      model
+    (setf
+     simulation-result
+     (darcy-evolve darcy
+                   (fill-array (coerce initial-saturation 'double-float)
+                               (darcy-size darcy)
+                               'double-float)
+                   final-time
+                   output-time-interval))))
+
+;; ** Parameters
+(defun make-default-darcy-simulation ()
+  (parameter
+   :name "Darcy Model Simulation"
+   :children
+   (list
+    (make-default-darcy-model)
+    (parameter
+     :name "Final time"
+     :id :final-time
+     :value 24d0
+     :units "hour"
+     :value-transformer (get-conversion "hour")
+     :description "Final time of simulation")
+    (parameter
+     :name "Output time interval"
+     :id :output-time-interval
+     :value 1d0
+     :units "hour"
+     :value-transformer (get-conversion "hour")
+     :description "Provide outputs for every interval")
+    (parameter
+     :name "Plot time interval"
+     :id :plot-time-interval
+     :value 3d0
+     :units "hour"
+     :value-transformer (get-conversion "hour")
+     :description "Time interval for each output series")
+    (parameter
+     :name "Initial saturation, s"
+     :id :initial-saturation
+     :value 0.01d0
+     :units "-"
+     :description "Initial effective saturation for simulation"))
+   :constructor (constructor 'darcy-simulation)))
+
+;; TODO: Simulate button - need to update the interface
+;; TODO: Table view the result
+;; TODO: Plot the results
