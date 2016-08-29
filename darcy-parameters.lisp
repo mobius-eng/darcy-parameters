@@ -317,6 +317,7 @@ as singular objects and are broadcastes uniformly to each discretized volume"
 (defclass darcy-simulation ()
   ((darcy
     :initarg :darcy
+    :accessor darcy-simulation-model
     :documentation
     "Darcy model instance to simulation")
    (final-time
@@ -548,7 +549,14 @@ Run the simulation first!")
                                              :defaults location)
                               :direction :output
                               :if-exists :supersede)
-               (save-results-csv (model-show-object model-show) out)))))))))
+               (save-results-csv (model-show-object model-show) out))
+             (with-open-file (out
+                              (make-pathname :name "model" :type "txt"
+                                             :defaults location)
+                               :direction :output
+                               :if-exists :supersede)
+               (format out "~A"
+                       (darcy-simulation-model (model-show-object model-show)))))))))))
 
 
 (defun make-run-model-button ()
