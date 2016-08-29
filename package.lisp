@@ -11,7 +11,7 @@
 
 
 (defpackage :darcy-parameters
-  (:use #:cl #:parameters #:darcy-use #:unit-conversion)
+  (:use #:cl+qt #:parameters #:parameters-interface #:darcy-use #:unit-conversion)
   (:export #:make-default-conductivity
            #:make-default-van-genuchten
            #:make-default-brooks-corey-mualem

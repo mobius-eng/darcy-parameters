@@ -1,4 +1,6 @@
-(in-package #:darcy-parameters)
+(in-package darcy-parameters)
+
+(in-readtable :qtools)
 
 ;; * CONSTRUCTOR: abbreviation function
 (defun constructor (class-name)
@@ -195,7 +197,7 @@ Provides all the necessary transformers to SI units"
   "Produces default noisy inlet discharge model
 with default 0% noise."
   (parameter
-   :name "Noisy inlet specific discharge"
+   :name "Noisy inlet discharge"
    :children
    (list
     (parameter
@@ -287,22 +289,28 @@ as singular objects and are broadcastes uniformly to each discretized volume"
 
 (defvar *name-substitutions*
   (list
-   :rate :inlet-flow-rate
+   ;; General
    :mesh-size :mesh-points-number
+   ;; Conductivity
+   :k :intrinsic-permeability
+   :nu :liquid-viscosity
+   ;; Unsaturated
    :brooks-corey :brooks-corey-mualem
    :vg :van-genuchten
    :bcm :brooks-corey-mualem
    :brooks-corey :brooks-corey-mualem
-   :k :intrinsic-permeability
-   :nu :liquid-viscosity
    :lambda :pore-size-distribution-index
    :l :mualem-exponent
    :thetar :residual-water-content
-   :thetas :saturated-water-content)
+   :thetas :saturated-water-content
+   ;; Inlet
+   :inlet :inlet-discharge
+   :constant :constant-inlet-discharge
+   :fluctuating :fluctuating-inlet-discharge
+   :noisy :noisy-inlet-discharge
+   :rate :inlet-flow-rate)
   "PList of names that can be used instead of proper parameter names
-(in YAML files)")
-
-
+  (in YAML files)")
 
 ;; * Simulation probem
 ;; ** Definition
@@ -385,6 +393,180 @@ as singular objects and are broadcastes uniformly to each discretized volume"
      :description "Initial effective saturation for simulation"))
    :constructor (constructor 'darcy-simulation)))
 
-;; TODO: Simulate button - need to update the interface
-;; TODO: Table view the result
+
+(define-widget results-table (QDialog)
+  ((simulation
+    :initarg :simulation
+    :documentation
+    "Simulation object"))
+  (:documentation "Results dialog with the table"))
+
+(define-subwidget (results-table table)
+    (q+:make-qtablewidget)
+  (with-slots (darcy simulation-result) simulation
+    (let* ((mesh-points (darcy-points darcy))
+           (times (apply #'vector
+                         (loop for (time . saturation) in simulation-result
+                            collect time))))
+      (q+:set-row-count table (+ 2 (length mesh-points)))
+      (q+:set-column-count table (+ 1 (length times)))
+      ;; Fill out the headers
+      (let ((depth-title (q+:make-qtablewidgetitem "Depth, m"))
+            (time-title (q+:make-qtablewidgetitem "Time, h")))
+        (q+:set-text-alignment depth-title (+ (q+:qt.align-bottom) (q+:qt.align-hcenter)))
+        (q+:set-text-alignment time-title (q+:qt.align-hcenter))
+        (q+:set-item table 0 0 depth-title)
+        (q+:set-item table 0 1 time-title)
+        (loop for time across times
+           for column from 1
+           do (q+:set-item table 1 column
+                           (q+:make-qtablewidgetitem
+                            (format nil "~,1F" (/ time 3600d0))))))
+      ;; Fill out the data
+      (loop for point across mesh-points
+         for row from 0
+         for table-row from 2
+         do (progn
+              (q+:set-item
+               table table-row 0
+               (q+:make-qtablewidgetitem (format nil "~,3F" point)))
+              (loop for (time . saturation) in simulation-result
+                 for table-column from 1
+                 do (q+:set-item
+                     table table-row table-column
+                     (q+:make-qtablewidgetitem
+                      (format nil "~,5,,,,,'eG" (aref saturation row)))))))
+      ;; Set the span of Depth
+      (q+:set-span table 0 0 2 1)
+      ;; Set the span of Time
+      (q+:set-span table 0 1 1 (length times)))))
+
+
+(define-subwidget (results-table layout)
+    (q+:make-qgridlayout results-table)
+  (q+:add-widget layout table 0 0 1 1))
+
+(defmethod initialize-instance :after ((dialog results-table) &key)
+  (q+:set-modal dialog nil)
+  (q+:set-window-title dialog "Simulation results"))
+
+(defun save-results-csv (simulation out)
+  ;; (with-open-file (out file-name :direction :output :if-exists :supersede))
+  (with-slots (darcy simulation-result) simulation
+    (let ((mesh-points (darcy-points darcy))
+          (times (loop for (time . saturation) in simulation-result
+                    collect (/ time 3600d0))))
+      ;; Output header-row
+      (format out "~A,~{~,1F~^,~}~%" "Depth" times)
+      ;; Output data
+      (loop for point across mesh-points
+         for row from 0
+         do (progn
+              (format out "~,3F,~{~,5,,,,,'eG~^,~}~%"
+                      point
+                      (loop for (time . saturation) in simulation-result
+                         collect (aref saturation row))))))))
+
+
+(defun make-results-table (simulation)
+  (with-slots (darcy simulation-result) simulation
+    (let* ((table (q+:make-qtablewidget))
+           (mesh-points (darcy-points darcy))
+           (times (apply #'vector
+                         (loop for (time . saturation) in simulation-result
+                            collect time))))
+      (q+:set-row-count table (+ 2 (length mesh-points)))
+      (q+:set-column-count table (+ 1 (length times)))
+      ;; Fill out the headers
+      (let ((depth-title (q+:make-qtablewidgetitem "Depth"))
+            (time-title (q+:make-qtablewidgetitem "Time, h")))
+        (q+:set-text-alignment depth-title (+ (q+:qt.align-bottom) (q+:qt.align-hcenter)))
+        (q+:set-text-alignment time-title (q+:qt.align-hcenter))
+        (q+:set-item table 0 0 depth-title)
+        (q+:set-item table 0 1 time-title)
+        (loop for time across times
+           for column from 1
+           do (q+:set-item table 1 column
+                           (q+:make-qtablewidgetitem
+                            (format nil "~,1F" (/ time 3600d0))))))
+      ;; Fill out the data
+      (loop for point across mesh-points
+         for row from 0
+         for table-row from 2
+         do (progn
+              (q+:set-item
+               table table-row 0
+               (q+:make-qtablewidgetitem (format nil "~,3F" point)))
+              (loop for (time . saturation) in simulation-result
+                 for table-column from 1
+                 do (q+:set-item
+                     table table-row table-column
+                     (q+:make-qtablewidgetitem
+                      (format nil "~,5,,,,,'eG" (aref saturation row)))))))
+      ;; Set the span of Depth
+      (q+:set-span table 0 0 2 1)
+      ;; Set the span of Time
+      (q+:set-span table 0 1 1 (length times))
+      table)))
+
+(defun make-results-dialog (simulation)
+  (with-slots (darcy simulation-result) simulation
+    (assert simulation-result () "Simulation results are not produced yet.\
+Run the simulation first!")
+    (let ((dialog (q+:make-qdialog)))
+      (q+:set-modal dialog nil)
+      (q+:set-window-title dialog "Run model results")
+      (let* ((layout (q+:make-qgridlayout))
+             (table (make-results-table simulation))
+             (save-button (q+:make-qpushbutton)))
+        (setf (q+:text save-button) "Save results")
+        (connect save-button "clicked()" (lambda ()
+                                      (save-results-csv simulation ;; for now
+                                                        *standard-output*)))
+        (q+:add-widget layout table 0 0 1 1)
+        (q+:add-widget layout save-button 0 1 1 1 (q+:qt.align-top))
+        (setf (q+:layout dialog) layout)
+        (q+:show dialog)))))
+
+(defun make-save-button ()
+  (parameters-interface::make-button-in-context
+   "Save results in..."
+   (lambda (model-show)
+     (lambda (self)
+       (declare (ignore self))
+       (let ((choose-dir (q+:make-qfiledialog model-show
+                                              "Save to location"
+                                              (namestring (uiop/os:getcwd)))))
+         (q+:set-file-mode choose-dir (q+:QFileDialog.directory))
+         (q+:set-options choose-dir (q+:QFileDialog.show-dirs-only))
+         (when (exec-dialog-p choose-dir)
+           (let ((location (uiop/pathname:ensure-directory-pathname
+                            (pathname (first (q+:selected-files choose-dir))))))
+             (ensure-directories-exist location)
+             (with-open-file (out
+                              (make-pathname :name "results-table" :type "csv"
+                                             :defaults location)
+                              :direction :output
+                              :if-exists :supersede)
+               (save-results-csv (model-show-object model-show) out)))))))))
+
+
+(defun make-run-model-button ()
+  "Produces the function of MODEL-SHOW that makes Run model button.
+The click on the button runs the simulation.
+This form is suitable to be used as an entry in the list for
+:OBJECT-OPERATION-WIDGETS initarg of MODEL-SHOW"
+  (parameters-interface::make-button-in-context
+   "Run model"
+   (lambda (model-show)
+     (lambda (self)
+       (declare (ignore self))
+       ;; (break "Break ~A" model-show)
+       (with-slots ((object parameters-interface::object)) model-show
+         (format t "~&Sarting simulation~%")
+         (simulate object)
+         (q+:show (make-instance 'results-table :simulation object)))))))
+
+
 ;; TODO: Plot the results
+
