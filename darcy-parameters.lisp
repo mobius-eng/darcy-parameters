@@ -1,8 +1,7 @@
 (in-package darcy-parameters)
 
-(in-readtable :qtools)
-
-;; * CONSTRUCTOR: abbreviation function
+;; * Utils
+;; ** CONSTRUCTOR: abbreviation function
 (defun constructor (class-name)
   "Simple abbreviation: (CONSTRUCTOR CLASS-NAME)
 returns a function (of a plist) applying MAKE-INSTANCE
@@ -10,6 +9,17 @@ to CLASS-NAME and plist-args"
   (lambda (&rest args)
     (apply #'make-instance class-name args)))
 
+;; ** Extend PARAMETER to convert units automatically
+(define-keyword-method parameter (:value :units-with-conversion)
+    (&rest args &key units-with-conversion &allow-other-keys)
+  (let ((arg-list (list*
+                   :units units-with-conversion
+                   :constructor (get-conversion units-with-conversion)
+                   (loop for (key value) on args by #'cddr
+                      when (not (eq key :units-with-conversion))
+                      append (list key value)
+                      end))))
+    (apply #'parameter arg-list)))
 
 ;; * Default CONDUCTIVITY
 (defun make-default-conductivity ()
@@ -121,7 +131,7 @@ where:
 a function of no argument that makes it.
 MODEL-ID is taken from the produced model"
   (let ((model (funcall model-maker)))
-    (push (list (parameter-base-id model) model-maker)
+    (push (list (parameter-id model) model-maker)
           *unsaturated-model-makers*)))
 
 ;; Need to register pre-defined models
@@ -150,9 +160,8 @@ with flow rate of 10 L/m2 h. Provides the conversion to SI units"
      :name "Flow rate"
      :id :inlet-flow-rate
      :value 10d0
-     :units "L/m2.h"
-     :description "Inlet flow rate"
-     :value-transformer (get-conversion "L/m2.h")))
+     :units-with-conversion "L/m2.h"
+     :description "Inlet flow rate"))
    :constructor (constructor 'constant-inlet-discharge)))
 
 (define-units ("1/h" x) (/ x 3600d0))
@@ -171,23 +180,20 @@ Provides all the necessary transformers to SI units"
      :name "Flow rate"
      :id :inlet-flow-rate
      :value 10d0
-     :units "L/m2.h"
-     :description "Inlet flow rate"
-     :value-transformer (get-conversion "L/m2.h"))
+     :units-with-conversion "L/m2.h"
+     :description "Inlet flow rate")
     (parameter
      :name "Frequency"
      :id :fluctuation-frequency
      :value 1d0
-     :units "1/hour"
-     :description "Frequency of fluctuation"
-     :value-transformer (get-conversion "1/hour"))
+     :units-with-conversion "1/hour"
+     :description "Frequency of fluctuation")
     (parameter
      :name "Delay"
      :id :fluctuation-delay
      :value 0d0
-     :units "hour"
-     :description "Delay of fluctuation"
-     :value-transformer (get-conversion "hour")))
+     :units-with-conversion "hour"
+     :description "Delay of fluctuation"))
    :constructor (constructor 'fluctuating-inlet-discharge)))
 
 (define-units ("%" x) (/ x 100d0))
@@ -204,9 +210,8 @@ with default 0% noise."
      :name "Noise"
      :id :inlet-discharge-noise
      :value 0d0
-     :units "%"
-     :description "Level of noise as the % of current flow rate"
-     :value-transformer (get-conversion "%"))
+     :units-with-conversion "%"
+     :description "Level of noise as the % of current flow rate")
     (parameter
      :name "Base flow rate"
      :id :base-inlet-discharge
@@ -226,7 +231,7 @@ where:
 
 (defun register-new-inlet-discharge (maker)
   (let ((instance (funcall maker)))
-    (push (list (parameter-base-id instance)
+    (push (list (parameter-id instance)
                 maker)
           *inlet-discharge-model-makers*)))
 
@@ -308,55 +313,13 @@ as singular objects and are broadcastes uniformly to each discretized volume"
    :constant :constant-inlet-discharge
    :fluctuating :fluctuating-inlet-discharge
    :noisy :noisy-inlet-discharge
-   :rate :inlet-flow-rate)
+   :rate :inlet-flow-rate
+   ;; Simulation
+   :s0 :initial-saturation
+   )
   "PList of names that can be used instead of proper parameter names
   (in YAML files)")
 
-;; * Simulation probem
-;; ** Definition
-(defclass darcy-simulation ()
-  ((darcy
-    :initarg :darcy
-    :accessor darcy-simulation-model
-    :documentation
-    "Darcy model instance to simulation")
-   (final-time
-    :initarg :final-time
-    :documentation
-    "Final time of simulation (in seconds)")
-   (output-time-interval
-    :initarg :output-time-interval
-    :documentation
-    "Interval with which produce the output")
-   (plot-time-interval
-    :initarg :plot-time-interval
-    :documentation
-    "Interval for plots: usualy longer than OUTPUT-TIME-INTERVAL")
-   (initial-saturation
-    :initarg :initial-saturation
-    :documentation
-    "Initial saturation for simulation")
-   (simulation-result
-    :initform nil
-    :documentation
-    "Storage for the result of simulation"))
-  (:documentation
-   "Full representation of the Darcy model simulation"))
-
-;; ** Simulation
-(defmethod simulate ((model darcy-simulation))
-  (with-slots (darcy final-time output-time-interval
-                     plot-time-interval initial-saturation
-                     simulation-result)
-      model
-    (setf
-     simulation-result
-     (darcy-evolve darcy
-                   (fill-array (coerce initial-saturation 'double-float)
-                               (darcy-size darcy)
-                               'double-float)
-                   final-time
-                   output-time-interval))))
 
 ;; ** Parameters
 (defun make-default-darcy-simulation ()
@@ -369,22 +332,25 @@ as singular objects and are broadcastes uniformly to each discretized volume"
      :name "Final time"
      :id :final-time
      :value 24d0
-     :units "hour"
-     :value-transformer (get-conversion "hour")
+     :units-with-conversion "hour"
      :description "Final time of simulation")
     (parameter
      :name "Output time interval"
      :id :output-time-interval
      :value 1d0
-     :units "hour"
-     :value-transformer (get-conversion "hour")
+     :units-with-conversion "hour"
      :description "Provide outputs for every interval")
+    (parameter
+     :name "Fine time interval"
+     :id :fine-time-interval
+     :value 0.1d0
+     :units-with-conversion "hour"
+     :description "Fine time interval for calculating inlet and outlet")
     (parameter
      :name "Plot time interval"
      :id :plot-time-interval
      :value 3d0
-     :units "hour"
-     :value-transformer (get-conversion "hour")
+     :units-with-conversion "hour"
      :description "Time interval for each output series")
     (parameter
      :name "Initial saturation, s"
@@ -393,188 +359,4 @@ as singular objects and are broadcastes uniformly to each discretized volume"
      :units "-"
      :description "Initial effective saturation for simulation"))
    :constructor (constructor 'darcy-simulation)))
-
-
-(define-widget results-table (QDialog)
-  ((simulation
-    :initarg :simulation
-    :documentation
-    "Simulation object"))
-  (:documentation "Results dialog with the table"))
-
-(define-subwidget (results-table table)
-    (q+:make-qtablewidget)
-  (with-slots (darcy simulation-result) simulation
-    (let* ((mesh-points (darcy-points darcy))
-           (times (apply #'vector
-                         (loop for (time . saturation) in simulation-result
-                            collect time))))
-      (q+:set-row-count table (+ 2 (length mesh-points)))
-      (q+:set-column-count table (+ 1 (length times)))
-      ;; Fill out the headers
-      (let ((depth-title (q+:make-qtablewidgetitem "Depth, m"))
-            (time-title (q+:make-qtablewidgetitem "Time, h")))
-        (q+:set-text-alignment depth-title (+ (q+:qt.align-bottom) (q+:qt.align-hcenter)))
-        (q+:set-text-alignment time-title (q+:qt.align-hcenter))
-        (q+:set-item table 0 0 depth-title)
-        (q+:set-item table 0 1 time-title)
-        (loop for time across times
-           for column from 1
-           do (q+:set-item table 1 column
-                           (q+:make-qtablewidgetitem
-                            (format nil "~,1F" (/ time 3600d0))))))
-      ;; Fill out the data
-      (loop for point across mesh-points
-         for row from 0
-         for table-row from 2
-         do (progn
-              (q+:set-item
-               table table-row 0
-               (q+:make-qtablewidgetitem (format nil "~,3F" point)))
-              (loop for (time . saturation) in simulation-result
-                 for table-column from 1
-                 do (q+:set-item
-                     table table-row table-column
-                     (q+:make-qtablewidgetitem
-                      (format nil "~,5,,,,,'eG" (aref saturation row)))))))
-      ;; Set the span of Depth
-      (q+:set-span table 0 0 2 1)
-      ;; Set the span of Time
-      (q+:set-span table 0 1 1 (length times)))))
-
-
-(define-subwidget (results-table layout)
-    (q+:make-qgridlayout results-table)
-  (q+:add-widget layout table 0 0 1 1))
-
-(defmethod initialize-instance :after ((dialog results-table) &key)
-  (q+:set-modal dialog nil)
-  (q+:set-window-title dialog "Simulation results"))
-
-(defun save-results-csv (simulation out)
-  ;; (with-open-file (out file-name :direction :output :if-exists :supersede))
-  (with-slots (darcy simulation-result) simulation
-    (let ((mesh-points (darcy-points darcy))
-          (times (loop for (time . saturation) in simulation-result
-                    collect (/ time 3600d0))))
-      ;; Output header-row
-      (format out "~A,~{~,1F~^,~}~%" "Depth" times)
-      ;; Output data
-      (loop for point across mesh-points
-         for row from 0
-         do (progn
-              (format out "~,3F,~{~,5,,,,,'eG~^,~}~%"
-                      point
-                      (loop for (time . saturation) in simulation-result
-                         collect (aref saturation row))))))))
-
-
-(defun make-results-table (simulation)
-  (with-slots (darcy simulation-result) simulation
-    (let* ((table (q+:make-qtablewidget))
-           (mesh-points (darcy-points darcy))
-           (times (apply #'vector
-                         (loop for (time . saturation) in simulation-result
-                            collect time))))
-      (q+:set-row-count table (+ 2 (length mesh-points)))
-      (q+:set-column-count table (+ 1 (length times)))
-      ;; Fill out the headers
-      (let ((depth-title (q+:make-qtablewidgetitem "Depth"))
-            (time-title (q+:make-qtablewidgetitem "Time, h")))
-        (q+:set-text-alignment depth-title (+ (q+:qt.align-bottom) (q+:qt.align-hcenter)))
-        (q+:set-text-alignment time-title (q+:qt.align-hcenter))
-        (q+:set-item table 0 0 depth-title)
-        (q+:set-item table 0 1 time-title)
-        (loop for time across times
-           for column from 1
-           do (q+:set-item table 1 column
-                           (q+:make-qtablewidgetitem
-                            (format nil "~,1F" (/ time 3600d0))))))
-      ;; Fill out the data
-      (loop for point across mesh-points
-         for row from 0
-         for table-row from 2
-         do (progn
-              (q+:set-item
-               table table-row 0
-               (q+:make-qtablewidgetitem (format nil "~,3F" point)))
-              (loop for (time . saturation) in simulation-result
-                 for table-column from 1
-                 do (q+:set-item
-                     table table-row table-column
-                     (q+:make-qtablewidgetitem
-                      (format nil "~,5,,,,,'eG" (aref saturation row)))))))
-      ;; Set the span of Depth
-      (q+:set-span table 0 0 2 1)
-      ;; Set the span of Time
-      (q+:set-span table 0 1 1 (length times))
-      table)))
-
-(defun make-results-dialog (simulation)
-  (with-slots (darcy simulation-result) simulation
-    (assert simulation-result () "Simulation results are not produced yet.\
-Run the simulation first!")
-    (let ((dialog (q+:make-qdialog)))
-      (q+:set-modal dialog nil)
-      (q+:set-window-title dialog "Run model results")
-      (let* ((layout (q+:make-qgridlayout))
-             (table (make-results-table simulation))
-             (save-button (q+:make-qpushbutton)))
-        (setf (q+:text save-button) "Save results")
-        (connect save-button "clicked()" (lambda ()
-                                      (save-results-csv simulation ;; for now
-                                                        *standard-output*)))
-        (q+:add-widget layout table 0 0 1 1)
-        (q+:add-widget layout save-button 0 1 1 1 (q+:qt.align-top))
-        (setf (q+:layout dialog) layout)
-        (q+:show dialog)))))
-
-(defun make-save-button ()
-  (parameters-interface::make-button-in-context
-   "Save results in..."
-   (lambda (model-show)
-     (lambda (self)
-       (declare (ignore self))
-       (let ((choose-dir (q+:make-qfiledialog model-show
-                                              "Save to location"
-                                              (namestring (uiop/os:getcwd)))))
-         (q+:set-file-mode choose-dir (q+:QFileDialog.directory))
-         (q+:set-options choose-dir (q+:QFileDialog.show-dirs-only))
-         (when (exec-dialog-p choose-dir)
-           (let ((location (uiop/pathname:ensure-directory-pathname
-                            (pathname (first (q+:selected-files choose-dir))))))
-             (ensure-directories-exist location)
-             (with-open-file (out
-                              (make-pathname :name "results-table" :type "csv"
-                                             :defaults location)
-                              :direction :output
-                              :if-exists :supersede)
-               (save-results-csv (model-show-object model-show) out))
-             (with-open-file (out
-                              (make-pathname :name "model" :type "txt"
-                                             :defaults location)
-                               :direction :output
-                               :if-exists :supersede)
-               (format out "~A"
-                       (darcy-simulation-model (model-show-object model-show)))))))))))
-
-
-(defun make-run-model-button ()
-  "Produces the function of MODEL-SHOW that makes Run model button.
-The click on the button runs the simulation.
-This form is suitable to be used as an entry in the list for
-:OBJECT-OPERATION-WIDGETS initarg of MODEL-SHOW"
-  (parameters-interface::make-button-in-context
-   "Run model"
-   (lambda (model-show)
-     (lambda (self)
-       (declare (ignore self))
-       ;; (break "Break ~A" model-show)
-       (with-slots ((object parameters-interface::object)) model-show
-         (format t "~&Sarting simulation~%")
-         (simulate object)
-         (q+:show (make-instance 'results-table :simulation object)))))))
-
-
-;; TODO: Plot the results
 

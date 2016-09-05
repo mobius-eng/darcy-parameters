@@ -11,7 +11,7 @@
 
 
 (defpackage :darcy-parameters
-  (:use #:cl+qt #:parameters #:parameters-interface #:darcy-use #:unit-conversion)
+  (:use #:cl #:parameters #:keyword-dispatch #:darcy-use #:unit-conversion)
   (:export #:make-default-conductivity
            #:make-default-van-genuchten
            #:make-default-brooks-corey-mualem
@@ -25,6 +25,7 @@
            #:register-new-inlet-discharge
            #:register-new-unsaturated-model
            #:make-default-darcy-model
+           #:make-default-darcy-simulation
            #:uniform-darcy-model
            #:constructor
            #:*name-substitutions*))
