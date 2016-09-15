@@ -6,10 +6,13 @@
   :license "MIT"
   :depends-on (#:darcy-model
                #:parameters
+               #:parameters-extra
                #:closer-mop
-               #:parse-number)
+               #:parse-number
+               #:cl-slice)
   :serial t
   :components ((:file "package")
                (:file "unit-conversion")
-               (:file "darcy-parameters")))
+               (:file "darcy-parameters")
+               (:file "darcy-interface")))
 

@@ -43,6 +43,12 @@ typical (by order of magnitude) intrinsic permeability"
           :description "Medium intrinsic permeability"))
    :constructor (constructor 'conductivity)))
 
+(defun make-perturbed-conductivity ()
+  (let ((p (perturb-parameter! (make-default-conductivity) 0d0)))
+    (setf (parameter-name p) "Perturbed Conductivity")
+    (setf (parameter-id p) :perturbed-conductivity)
+    p))
+
 ;; * Default unsaturated models
 ;; ** Common parameters
 ;; General common parameters
@@ -97,6 +103,13 @@ typical values of bubbling pressure and N"
     (make-default-unsaturated-common))
    :constructor (constructor 'van-genuchten)))
 
+(defun make-perturbed-van-genuchten ()
+  (let ((p (perturb-parameter! (make-default-van-genuchten)
+                               (list :n 0.1d0))))
+    (setf (parameter-name p) "Perturbed Van Genuchten")
+    (setf (parameter-id p) :perturbed-van-genuchten)
+    p))
+
 ;; ** Default BROOKS-COREY
 (defun make-default-brooks-corey-mualem ()
   "Produces default Brooks-Corey-Mualem unsaturated model
@@ -117,6 +130,13 @@ distribution index (lambda)"
     (make-default-unsaturated-common))
    :constructor (constructor 'brooks-corey-mualem)))
 
+(defun make-perturbed-brooks-corey-mualem ()
+  (let ((p (perturb-parameter! (make-default-brooks-corey-mualem)
+                               (list :pore-size-distribution-index 0.1d0))))
+    (setf (parameter-name p) "Perturbed Brooks-Corey-Mualem")
+    (setf (parameter-id p) :perturbed-brooks-corey-mualem)
+    p))
+
 ;; ** Default UNSATURATED-MODELS
 (defvar *unsaturated-model-makers* nil
   "Alist of available unsaturated model makers. Each entry:
@@ -135,6 +155,8 @@ MODEL-ID is taken from the produced model"
           *unsaturated-model-makers*)))
 
 ;; Need to register pre-defined models
+(register-new-unsaturated-model #'make-perturbed-brooks-corey-mualem)
+(register-new-unsaturated-model #'make-perturbed-van-genuchten)
 (register-new-unsaturated-model #'make-default-brooks-corey-mualem)
 (register-new-unsaturated-model #'make-default-van-genuchten)
 
@@ -248,23 +270,16 @@ where:
       collect (funcall maker))))
 
 ;; * Darcy model
-(defun uniform-darcy-model (&key
-                              (conductivity (instantiate-object
-                                             (make-default-conductivity)))
-                              (unsaturated (instantiate-object
-                                            (make-default-unsaturated-models)))
-                              (height 1d0)
-                              (mesh-points-number 20)
-                              (inlet-discharge
-                               (instantiate-object
-                                (make-default-inlet-discharge-options))))
+(defun uniform-darcy-model (&key conductivities-unsaturated-models height inlet-discharge)
   "Creates uniform Darcy model. CONDUCTIVITY and UNSATURATED are provided
 as singular objects and are broadcastes uniformly to each discretized volume"
-  (let ((dz (coerce (/ height mesh-points-number) 'double-float)))
+  (let* ((unsaturated-models (apply #'vector (getf conductivities-unsaturated-models :unsaturated)))
+         (conductivities (apply #'vector (getf conductivities-unsaturated-models :conductivity)))
+         (dz (coerce (/ height (length conductivities)) 'double-float)))
     (make-instance 'darcy
       :inlet-discharge inlet-discharge
-      :unsaturated-models (fill-array unsaturated mesh-points-number)
-      :conductivities (fill-array conductivity mesh-points-number)
+      :unsaturated-models unsaturated-models
+      :conductivities conductivities
       :space-step dz)))
 
 (defun make-default-darcy-model ()
@@ -281,16 +296,24 @@ as singular objects and are broadcastes uniformly to each discretized volume"
      :units "m"
      :description "Height of the packing/column")
     (parameter
-     :name "Mesh points number"
-     :id :mesh-points-number
-     :value 20
-     :units "-"
-     :description "Number of spatial discretization points")
-    (make-default-conductivity)
-    (make-default-unsaturated-models)
+     :name "Conductivities and unsaturated models"
+     :id :conductivities-unsaturated-models
+     :number-of-instances 20
+     :children (list (make-default-conductivity)
+                     (make-default-unsaturated-models)))
     (make-default-inlet-discharge-options))
    :constructor (lambda (&rest args)
                   (apply #'uniform-darcy-model args))))
+
+;; (parameter
+;;      :name "Mesh points number"
+;;      :id :mesh-points-number
+;;      :value 20
+;;      :units "-"
+;;      :description "Number of spatial discretization points")
+;;     (make-default-conductivity)
+;;     (make-default-unsaturated-models)
+
 
 (defvar *name-substitutions*
   (list
@@ -302,12 +325,14 @@ as singular objects and are broadcastes uniformly to each discretized volume"
    ;; Unsaturated
    :brooks-corey :brooks-corey-mualem
    :vg :van-genuchten
+   :vgm :van-genuchten
    :bcm :brooks-corey-mualem
-   :brooks-corey :brooks-corey-mualem
    :lambda :pore-size-distribution-index
    :l :mualem-exponent
    :thetar :residual-water-content
    :thetas :saturated-water-content
+   :psib :bubbling-pressure
+   :psi-b :bubbling-pressure
    ;; Inlet
    :inlet :inlet-discharge
    :constant :constant-inlet-discharge

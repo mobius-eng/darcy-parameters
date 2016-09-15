@@ -1,10 +1,6 @@
-(in-package cl-user)
-
-(defpackage darcy-interface
-  (:use #:cl+qt #:parameters #:parameters-interface #:parameters-yaml
-        #:darcy-parameters #:darcy-use #:cl-slice))
-
 (in-package darcy-interface)
+
+(in-readtable :qtools)
 
 (define-widget results-table (QDialog)
   ((simulation
@@ -66,7 +62,8 @@
 (defun output-data-csv (results out
                         &optional
                           (transformer #'aref)
-                          (format "~,5,,,,,'eG"))
+                          (format "~,5,,,,,'eG")
+                          (time-row-format "~,1F"))
   (let* ((mesh-points (simulation-results-mesh-points results))
          (times (simulation-results-time results))
          (saturation (simulation-results-saturation results))
@@ -77,9 +74,10 @@
                        (loop for x across mesh-points
                           for space-index from 0
                           collect (funcall transformer saturation-column space-index)))))
-         (output-format (format nil "~~,3F,~~{~A~~^,~~}~~%" format)))
+         (output-format (format nil "~~,3F,~~{~A~~^,~~}~~%" format))
+         (header-row-format (format nil "~~A,~~{~A~~^,~~}~~%" time-row-format)))
     ;; Output header-row
-    (format out "~A,~{~,1F~^,~}~%" "Depth"
+    (format out header-row-format "Depth"
             (map 'list (lambda (x) (/ x 3600d0)) times))
     ;; Output data
     (loop for point across mesh-points
@@ -101,15 +99,158 @@
        do (format out output-format (/ time 3600d0) s))))
 
 (defun save-data-csv (location name results
-                      &optional
+                      &key
                         (transformer #'aref)
-                        (format "~,5,,,,,'eG"))
+                        (format "~,5,,,,,'eG")
+                        (time-row-format "~,1F"))
   (with-open-file (out
                    (make-pathname :name name :type "csv"
                                   :defaults location)
                    :direction :output
                    :if-exists :supersede)
-    (output-data-csv results out transformer format)))
+    (output-data-csv results out transformer format time-row-format)))
+
+(defvar *plot-average-saturation-script*
+  "reset
+set terminal png enhanced size 600,400 font \"InputMono\" 10
+set output 'average-saturation.png'
+# set termoption dashed
+set datafile separator ','
+
+set title \"Evolution of average saturation over time\"
+set xlabel \"Elapsed time, h\"
+set ylabel \"Effective saturation, -\"
+
+unset grid
+
+unset key
+
+plot \"average-saturation.csv\" using 1:2 with lines")
+
+
+(defvar *plot-header*
+  "reset
+set terminal png enhanced size 800,600 font \"InputMono\" 10
+set output 'summary.png'
+set multiplot layout 2, 2 title 'Model summary'
+set tmargin 2
+set termoption dashed
+set datafile separator ','
+unset grid
+
+")
+
+(defvar *plot-saturation*
+  "
+unset yrange
+unset xrange
+
+set key autotitle columnhead center bmargin horizontal
+
+set xlabel \"Depth, m\"
+set ylabel \"Effective saturation, -\"
+
+set title 'Saturation'
+
+plot")
+
+(defvar *plot-conductivity*
+  "
+unset yrange
+unset xrange
+
+set key autotitle columnhead center bmargin horizontal
+
+set xlabel \"Depth, m\"
+set ylabel \"Conductivity, m/s\"
+set title 'Conductivity'
+
+plot")
+
+(defvar *plot-pressure*
+  "
+unset yrange
+unset xrange
+
+set key autotitle columnhead center bmargin horizontal
+
+set xlabel \"Depth, m\"
+set ylabel \"Pressure, m\"
+set title 'Capillary pressure'
+
+plot")
+
+
+
+(defvar *plot-footer*
+  "
+unset multiplot
+")
+
+
+(defun run-gnuplot (location script)
+  (let ((current-location (uiop/os:getcwd)))
+    (uiop/os:chdir location)
+    (uiop/run-program:run-program (format nil "gnuplot ~A" script))
+    (uiop/os:chdir current-location)))
+
+(defun save-script (location script name)
+  (let ((script-file (make-pathname :name name :type "gpl"
+                                    :defaults location)))
+    (with-open-file (out script-file :direction :output :if-exists :supersede)
+      (format out "~A~%" script))
+    (run-gnuplot location (format nil "~A.gpl" name))))
+
+(defun make-summary-script (max-column step
+                            &optional
+                              (satfile "saturation-plot-table.csv")
+                              (condfile "conductivity-plot-table.csv")
+                              (presfile "pressure-plot-table.csv"))
+  (with-output-to-string (out)
+    (format out "~A~%" *plot-header*)
+    (format out "~A " *plot-saturation*)
+    (format out "~{~S using 1:~D with lines~^,\\~%~T~}"
+            (loop for column from 2 upto max-column by step
+               collect satfile
+               collect column))
+    (format out "~%~A " *plot-conductivity*)
+    (format out "~{~S using 1:~D with lines~^,\\~%~T~}"
+            (loop for column from 2 upto max-column by step
+               collect condfile
+               collect column))
+    (format out "~%~A " *plot-pressure*)
+    (format out "~{~S using 1:~D with lines~^,\\~%~T~}"
+            (loop for column from 2 upto max-column by step
+               collect presfile
+               collect column))
+    (format out *plot-footer*)))
+
+(defun save-plot-scripts (simulation location)
+  (let* ((results (darcy-simulation-results simulation))
+         (times (simulation-results-time results))
+         (output-time-interval (darcy-simulation-output-time-interval simulation))
+         (plot-time-interval (darcy-simulation-plot-time-interval simulation))
+         (plot-step (ceiling plot-time-interval output-time-interval))
+         (times-count (length times)))
+    (save-script location
+                 (make-summary-script (1+ times-count) plot-step)
+                 "plot-summary"))
+  (save-script location *plot-average-saturation-script* "plot-average-saturation")
+  (display-plot (namestring (make-pathname :name "summary" :type "png"
+                                           :defaults location)) "Saturation")
+  (display-plot (namestring (make-pathname :name "average-saturation" :type "png"
+                                           :defaults location)) "Average Saturation"))
+
+(defun display-plot (filename title)
+  (declare (optimize (debug 3)))
+  (let* ((dialog (q+:make-qdialog))
+         (image (q+:make-qlabel))
+         (layout (q+:make-qgridlayout dialog)))
+    (q+:set-pixmap image (q+:make-qpixmap filename))
+    (q+:add-widget layout image 0 0 1 1)
+    (q+:set-window-title dialog title)
+    (q+:set-modal dialog nil)
+    (q+:show dialog)))
 
 (defun make-save-button ()
   (parameters-interface::make-button-in-context
@@ -134,8 +275,18 @@
                       (pressure-at darcy effsat index)))
                (ensure-directories-exist location)
                (save-data-csv location "saturation-table" results)
-               (save-data-csv location "conductivity-table" results #'c-transformer)
-               (save-data-csv location "pressure-table" results #'psi-transformer))
+               (save-data-csv location "saturation-plot-table" results
+                              :time-row-format "t = ~,1F h")
+               (save-data-csv location "conductivity-table" results
+                              :transformer #'c-transformer)
+               (save-data-csv location "conductivity-plot-table" results
+                              :transformer #'c-transformer
+                              :time-row-format "t = ~,1F h")
+               (save-data-csv location "pressure-table" results
+                              :transformer #'psi-transformer)
+               (save-data-csv location "pressure-plot-table" results
+                              :transformer #'psi-transformer
+                              :time-row-format "t = ~,1F h"))
              (with-open-file (out
                               (make-pathname :name "average-saturation" :type "csv"
                                              :defaults location)
@@ -147,8 +298,8 @@
                                              :defaults location)
                                :direction :output
                                :if-exists :supersede)
-               (format out "~A" darcy)))))))))
-
+               (format out "~A" darcy))
+             (save-plot-scripts simulation location))))))))
 
 (defun make-run-model-button ()
   "Produces the function of MODEL-SHOW that makes Run model button.
@@ -165,11 +316,6 @@ This form is suitable to be used as an entry in the list for
          (format t "~&Sarting simulation~%")
          (simulate object)
          (q+:show (make-instance 'results-table :simulation object)))))))
-
-
-
-;; TODO: Plot the results
-
 
 (defun run-simulation ()
   (show-model (make-default-darcy-simulation)

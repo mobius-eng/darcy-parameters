@@ -1,21 +1,36 @@
 name: Darcy Model Simulation
-final-time: 24.0
-output-time-interval: 1.0
-plot-time-interval: 3.0
-s0: 0.001
+final-time:
+  value: 24.0
+output-time-interval:
+  value: 1.0
+  units: hour
+plot-time-interval:
+  value: 3.0
+  units: hour
+s0:
+  value: 0.001
 darcy:
-  height: 0.3
-  mesh-size: 20
-  conductivity:
-    note: General conductivity
-    k: 2e-9
-    nu: 1e-3
-  unsaturated:
-    type: Van Genuchten
-    alpha: 3.0
-    n: 1.5e0
-    thetar: 1e-4
-    thetas: 0.3
+  height:
+    value: 0.3
+  mesh-size:
+    value: 20
+  conductivities-unsaturated-models:
+    instances-number:
+      value: 50
+    conductivity:
+      k:
+        value: 2e-9
+    unsaturated:
+      type: VGM
+      psib:
+        value: 0.35
+      n:
+        value: 1.5e0
+      thetar:
+        value: 1e-4
+      thetas:
+        value: 0.3
   inlet:
     type: Constant
-    rate: 20.0
+    rate:
+      value: 20.0
